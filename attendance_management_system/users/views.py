@@ -7,6 +7,8 @@ from rest_framework.permissions import IsAuthenticated
 from django.contrib.auth import authenticate
 from django.contrib.auth.models import update_last_login
 from rest_framework_simplejwt.exceptions import TokenError
+from rest_framework_simplejwt.token_blacklist.models import OutstandingToken
+
 
 
 
@@ -27,7 +29,9 @@ from rest_framework.decorators import action
 import users.utils as ui_utils
 from .models import BaseUser
 from rest_framework.views import APIView
+from attendance_management_system import settings
 
+mongo = settings.client
 
  
 from .serializer import (BaseUserCreateSerializer,
@@ -222,32 +226,55 @@ def validate_password(new_password):
 
 
 
+
 class LoginView(APIView):
     permission_classes = []
 
     def post(self, request, *args, **kwargs):
         username = request.data.get('username')
         password = request.data.get('password')
-        
+
+        # Debug: Print incoming username and password
+        print(f"Username: {username}, Password: {password}")
+
+        # Retrieve user object based on username
         user = BaseUser.objects.filter(username=username).first()
+
+        # Debug: Print user object
+        print(f"User object: {user}")
+
         if user is not None:
-            authenticated_user = authenticate(request=request, username=username, password=password)
+            # Authenticate user with provided password
+            authenticated_user = authenticate(username=username, password=password)
             
+            # Debug: Print authenticated user
+            print(f"Authenticated User: {authenticated_user}")
+
             if authenticated_user is not None:
                 try:
+                    # Handle existing tokens (optional step, if you want to invalidate them)
+                    OutstandingToken.objects.filter().delete()
+
+                    # If authentication is successful, generate tokens
                     refresh = RefreshToken.for_user(authenticated_user)
                     update_last_login(None, authenticated_user)
+                    
+                    # Debug: Print refresh token
+                    print(f"Refresh Token: {refresh}")
 
                     return Response({
                         'refresh': str(refresh),
                         'access': str(refresh.access_token),
                     }, status=status.HTTP_200_OK)
                 except TokenError as e:
-                    return Response({'detail': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+                    # Debug: Print exception details
+                    print(f"Token Generation Error: {e}")
+                    return Response({'detail': 'Token generation failed'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+                except Exception as e:
+                    # Debug: Print exception details
+                    print(f"General Error: {e}")
+                    return Response({'detail': 'An error occurred'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
             else:
                 return Response({'detail': 'Invalid credentials'}, status=status.HTTP_401_UNAUTHORIZED)
         else:
             return Response({'detail': 'User not found'}, status=status.HTTP_404_NOT_FOUND)
-        
-
-
